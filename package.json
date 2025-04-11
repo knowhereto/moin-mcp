@@ -1,0 +1,26 @@
+{
+  "type": "module",
+  "version": "1.0.0",
+  "description": "MCP server for moinAI API integration",
+  "author": "moinAI (https://moin.ai)",
+  "homepage": "https://moin.ai",
+  "bin": {
+    "mcp-server-moin-ai": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && shx chmod +x dist/*.js",
+    "prepare": "npm run build",
+    "watch": "tsc --watch"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "shx": "^0.3.4",
+    "typescript": "^5.8.2"
+  }
+}

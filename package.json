@@ -1,4 +1,5 @@
 {
+  "name": "@moin_ai/moin-mcp",
   "type": "module",
   "version": "1.0.0",
   "description": "MCP server for moinAI API integration",

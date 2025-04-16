@@ -8,6 +8,9 @@
   "bin": {
     "mcp-server-moin-ai": "dist/index.js"
   },
+  "engines": {
+    "node": ">=16"
+  },
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
     "prepare": "npm run build",

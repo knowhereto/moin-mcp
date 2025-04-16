@@ -20,7 +20,7 @@ if (!MOIN_AI_API_KEY) {
 
 // Server implementation
 const server = new Server(
-  { name: "moin_ai", version: "1.0.0" },
+  { name: "moin_ai", version: "1.0.1" },
   { capabilities: { tools: {} } }
 );
 

@@ -20,6 +20,7 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 - **Check `ai_agent_list` before creating.** Overlapping or duplicate agents are a main cause of misclassification — extend an existing agent before creating a similar new one.
 - Agents may cover a broader topic area (modern classification handles multiple related intentions within one agent well) — but agents should stay clearly distinct **from each other**.
 - **Don't create an agent for everything.** General FAQs and static information belong in the central knowledge base (`knowledgebase_*` tools) and are answered without a dedicated agent. Create a specialised agent when you need custom instructions, dedicated resources, or AI actions (processes, real-time data).
+- **Every agent needs knowledge — a pure action agent does not work.** If retrieval finds nothing, the pipeline only falls back to web-search and CSV-search actions; a webhook action does not qualify, so the answer stops at the no-knowledge fallback (error code 101) before the action can ever run. Give an action agent at least one knowledge article describing what it can do for the user.
 
 ## Standard workflow: new agent end-to-end
 
@@ -43,14 +44,22 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
    - **Templates.** URL, headers and body support Handlebars, resolved from the conversation context **by plain name**: a context `user_email` is `{{user_email}}`, not `{{ctx.user_email}}`.
    - **`sendBodyOption`** defaults to `'default'`, which sends moinAI's standard payload (`uniqueUserId` plus every `user_*` context). Use `'none'` for GET endpoints, and `'custom'` **together with** `data` to send your own JSON — passing `data` while the mode stays `'default'` silently discards it.
    - **`ctx_name`** names the context the response is stored in (default `webhook_response`). A failed call sets `webhook_error` instead.
-2. `webhook_test` — verify the endpoint is reachable before wiring it up.
-3. `ai_action_add_webhook` — attach to an agent. `webhookId` is the webhook *key* from `webhook_list` (e.g. `webhook_push_1739357841113`), not an object id. The `parameters` you declare (name/type/paramDescription) are filled by the LLM from the conversation and become Handlebars variables under their plain name. `description` tells the LLM when to use the action — write it like a tool description. `instruction_after` tells it what to do with the result — use it whenever the response is machine-shaped (codes, arrays, ids).
-4. `ai_playground_test` — confirm in the response that the action executed and the answer uses its data.
+2. `webhook_test` — verify the endpoint is reachable. **A pass here proves less than it looks:** the test fires the *stored* configuration, so Handlebars placeholders go out literally, unresolved. An endpoint that accepts `{{location}}` as a real value answers HTTP 200 with nonsense. Only `ai_playground_test` exercises the template path.
+3. `ai_action_add_webhook` — attach to an agent. `webhookId` is the webhook *key* from `webhook_list` (e.g. `webhook_push_1739357841113`), not an object id. The `parameters` you declare (name/type/paramDescription) are filled by the LLM **from the conversation text only** — see the next point. `description` tells the LLM when to use the action — write it like a tool description. `instruction_after` tells it what to do with the result — use it whenever the response is machine-shaped (codes, arrays, ids).
+4. `ai_playground_test` — confirm in the response that the action executed and the answer uses its data. Pass `context: [{name, value}]` to preset conversation context variables; this is the only way to test a webhook whose URL depends on them.
 5. When confirmed, hand over to the user: publishing to live happens via the Hub deployment.
+
+**The LLM cannot read conversation context variables.** Neither parameter filling nor answer generation sees them. Writing "if no city is given, use the context `user_city`" into a `paramDescription` looks reasonable and fails silently — the parameter arrives empty, and the answer says "at your location" without ever knowing the location. Contexts reach a webhook through exactly one path: Handlebars in the URL, headers or body. There is no second one.
+
+Because of that, "value from the conversation" and "value from the page context" are **two separate actions** on the same agent, not one action with a fallback: one declares an LLM parameter, the other declares none and puts `{{context_name}}` in the URL. The LLM picks between them reliably from their `description`.
 
 ### Worked example: weather forecast for the visit day
 
 Open-Meteo is public and needs no API key, which makes it a good first action for a tourism or leisure bot — "is Saturday a good day to come?" becomes answerable. The location is fixed (the customer's own site), only the date comes from the conversation.
+
+**Choose an API you can narrow down.** The whole webhook response is stored in the context and goes into the LLM prompt, so payload size is a running token cost and a source of distraction. The `daily=` field selection below returns well under a kilobyte; a weather endpoint that dumps everything returns tens of kilobytes for the same one-sentence answer. Prefer an API that lets you name the fields you want, and name them.
+
+**0. Give the agent knowledge.** A `knowledgebase_create` article like "We can tell you the weather forecast for our location for any day within the next two weeks" is enough. Without it the agent stops at the no-knowledge fallback and the action never runs.
 
 **1. `webhook_create`**
 
@@ -66,7 +75,7 @@ Open-Meteo is public and needs no API key, which makes it a good first action fo
 
 `sendBodyOption: "none"` matters here — the default would attach moinAI's payload to a GET request.
 
-**2. `webhook_test`** — the endpoint answers without parameters too, so a failure at this point is a connectivity or URL problem, not a template problem.
+**2. `webhook_test`** — a failure here is a connectivity or URL problem. A pass says nothing about `{{forecast_date}}`, which is still unresolved at this point.
 
 **3. `ai_action_add_webhook`**
 
@@ -102,15 +111,26 @@ navigator.geolocation.getCurrentPosition((pos) => {
 });
 ```
 
-The webhook URL then reads them by name:
+This becomes a **second webhook and a second action** on the same agent — no LLM parameter, the coordinates come straight from the context:
 
+```json
+{
+  "displayName": "Weather forecast at the visitor's position",
+  "url": "https://api.open-meteo.com/v1/forecast?latitude={{user_latitude}}&longitude={{user_longitude}}&daily=weather_code,temperature_2m_max,precipitation_probability_max&timezone=Europe%2FBerlin",
+  "method": "get",
+  "sendBodyOption": "none",
+  "ctx_name": "weather_forecast_visitor"
+}
 ```
-https://api.open-meteo.com/v1/forecast?latitude={{user_latitude}}&longitude={{user_longitude}}&daily=...
-```
 
-Two things to get right:
+Its action declares `parameters: []` and a `description` that separates it from the first one — "use this when the user asks about the weather where *they* are, not at our location". The LLM picks between the two from those descriptions.
 
-- Geolocation needs HTTPS and an explicit browser permission prompt. If the visitor declines, the contexts are never set, the placeholders resolve to empty strings and the URL breaks. Keep the site's own coordinates as a fallback — set them via `addContext` on page load and overwrite them only once the position is known.
+Test it with `ai_playground_test` and `context: [{"name": "user_latitude", "value": "48.14"}, {"name": "user_longitude", "value": "11.58"}]`. Without the `context` parameter you are not testing this action at all.
+
+Three things to get right:
+
+- **An empty placeholder produces a valid URL, not an error.** If the visitor declines the permission prompt the contexts are never set, `{{user_latitude}}` resolves to an empty string, and many APIs happily answer something — geo-IP services fall back to the *server's* location, and the bot then reports the weather in a datacentre with full confidence. No exception, no `webhook_error`. Guard it from both sides: shape the URL so an empty value fails loudly (Open-Meteo returns an empty body without coordinates), and add an `instruction_after` that checks the location echoed in the response against what the user asked for before using it.
+- Keep the site's own coordinates as a fallback: set them via `addContext` on page load and overwrite them only once the real position is known.
 - The `user_` prefix is not cosmetic: `sendBodyOption: 'default'` ships exactly `uniqueUserId` and the `user_*` contexts, so a context named `latitude` would be missing from the default payload.
 
 ## Widget JS API

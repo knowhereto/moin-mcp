@@ -107,8 +107,8 @@ cp -r moin-mcp/skills/moin-ai-management ~/.gemini/config/skills/
 | Knowledge Base | `knowledgebase_search/create/retrieve/update/delete` |
 | Webhook integrations | `webhook_list/get/create/update/delete/test` |
 | AI agents | `ai_agent_list/create/set_status`, `ai_agent_get/set_instructions` |
-| AI actions | `ai_action_add_webhook/update_webhook/remove/deploy` |
-| Knowledge resources | `ai_agent_resources`, `ai_resource_add/set_connection` |
+| AI actions | `ai_action_add_webhook/update_webhook/remove` |
+| Knowledge resources | `ai_agent_resources`, `ai_resource_add/update/set_connection` |
 | Testing & tuning | `ai_playground_test`, `ai_feedback_intent`, `ai_feedback_answer` |
 
 All write operations are restricted to the **staging** environment. Publishing to live is not possible via MCP — configurations become effective in production only through the content deployment in the moinAI Hub.

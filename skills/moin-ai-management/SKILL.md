@@ -1,6 +1,6 @@
 ---
 name: moin-ai-management
-description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, or asks why their bot answers (or doesn't answer) a certain way.
+description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, or asks about the moinAI website widget's JavaScript API.
 ---
 
 # moinAI Bot Management
@@ -39,11 +39,83 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 
 ## Standard workflow: webhook AI action
 
-1. `webhook_create` — HTTPS URL, method (only GET/POST are executed at runtime!), optional headers/auth. URL, headers, and body support Handlebars templates like `{{ctx.user_email}}` resolved from conversation context.
+1. `webhook_create` — HTTPS URL and method (only GET/POST are executed at runtime!), optional headers/auth. Three fields decide whether it works:
+   - **Templates.** URL, headers and body support Handlebars, resolved from the conversation context **by plain name**: a context `user_email` is `{{user_email}}`, not `{{ctx.user_email}}`.
+   - **`sendBodyOption`** defaults to `'default'`, which sends moinAI's standard payload (`uniqueUserId` plus every `user_*` context). Use `'none'` for GET endpoints, and `'custom'` **together with** `data` to send your own JSON — passing `data` while the mode stays `'default'` silently discards it.
+   - **`ctx_name`** names the context the response is stored in (default `webhook_response`). A failed call sets `webhook_error` instead.
 2. `webhook_test` — verify the endpoint is reachable before wiring it up.
-3. `ai_action_add_webhook` — attach to an agent. The `parameters` you declare (name/type/description) are filled by the LLM from the conversation and become Handlebars variables in the webhook. `description` tells the LLM when to use the action — write it like a tool description.
+3. `ai_action_add_webhook` — attach to an agent. `webhookId` is the webhook *key* from `webhook_list` (e.g. `webhook_push_1739357841113`), not an object id. The `parameters` you declare (name/type/paramDescription) are filled by the LLM from the conversation and become Handlebars variables under their plain name. `description` tells the LLM when to use the action — write it like a tool description. `instruction_after` tells it what to do with the result — use it whenever the response is machine-shaped (codes, arrays, ids).
 4. `ai_playground_test` — confirm in the response that the action executed and the answer uses its data.
 5. When confirmed, hand over to the user: publishing to live happens via the Hub deployment.
+
+### Worked example: weather forecast for the visit day
+
+Open-Meteo is public and needs no API key, which makes it a good first action for a tourism or leisure bot — "is Saturday a good day to come?" becomes answerable. The location is fixed (the customer's own site), only the date comes from the conversation.
+
+**1. `webhook_create`**
+
+```json
+{
+  "displayName": "Weather forecast for our location",
+  "url": "https://api.open-meteo.com/v1/forecast?latitude=53.55&longitude=9.99&daily=weather_code,temperature_2m_max,precipitation_probability_max&timezone=Europe%2FBerlin&start_date={{forecast_date}}&end_date={{forecast_date}}",
+  "method": "get",
+  "sendBodyOption": "none",
+  "ctx_name": "weather_forecast"
+}
+```
+
+`sendBodyOption: "none"` matters here — the default would attach moinAI's payload to a GET request.
+
+**2. `webhook_test`** — the endpoint answers without parameters too, so a failure at this point is a connectivity or URL problem, not a template problem.
+
+**3. `ai_action_add_webhook`**
+
+```json
+{
+  "intentId": "<agent id from ai_agent_list>",
+  "webhookId": "webhook_push_...",
+  "name": "Weather on the visit day",
+  "description": "Fetches the weather forecast for our location on a specific day. Use it when the user asks about the weather, conditions, or whether a day is suitable for a visit.",
+  "parameters": [
+    {
+      "name": "forecast_date",
+      "type": "string",
+      "paramDescription": "Date in YYYY-MM-DD format. Derive it from the question ('on Saturday' -> the date of the coming Saturday). Only up to 16 days ahead is available."
+    }
+  ],
+  "instruction_after": "The response contains daily.weather_code (WMO code), daily.temperature_2m_max in °C and daily.precipitation_probability_max in percent. Turn that into one plain-language sentence with a short visit recommendation. Never mention the raw code."
+}
+```
+
+**4. `ai_playground_test`** — "Wie wird das Wetter am Samstag bei euch?" The response must show the action executed, and the answer must read as a forecast rather than as raw JSON.
+
+### Passing page data into the webhook
+
+Contexts the website sets through the widget are Handlebars variables like any other, which is how the fixed coordinates above become dynamic. The page asks for the visitor's position and hands it to the widget:
+
+```js
+navigator.geolocation.getCurrentPosition((pos) => {
+  window.moin.addContext({
+    user_latitude: pos.coords.latitude.toFixed(2),
+    user_longitude: pos.coords.longitude.toFixed(2),
+  });
+});
+```
+
+The webhook URL then reads them by name:
+
+```
+https://api.open-meteo.com/v1/forecast?latitude={{user_latitude}}&longitude={{user_longitude}}&daily=...
+```
+
+Two things to get right:
+
+- Geolocation needs HTTPS and an explicit browser permission prompt. If the visitor declines, the contexts are never set, the placeholders resolve to empty strings and the URL breaks. Keep the site's own coordinates as a fallback — set them via `addContext` on page load and overwrite them only once the position is known.
+- The `user_` prefix is not cosmetic: `sendBodyOption: 'default'` ships exactly `uniqueUserId` and the `user_*` contexts, so a context named `latitude` would be missing from the default payload.
+
+## Widget JS API
+
+Questions about the website widget itself — embedding it, controlling it from the page, feeding data in via `addContext`, available methods and events — are not covered by the MCP tools. The public documentation at https://dev.moin.ai/wdocs/api/api.html is the source of truth. Read that page before answering instead of guessing method names.
 
 ## Tuning loop
 

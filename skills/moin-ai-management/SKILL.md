@@ -20,7 +20,7 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 - **Check `ai_agent_list` before creating.** Overlapping or duplicate agents are a main cause of misclassification — extend an existing agent before creating a similar new one.
 - Agents may cover a broader topic area (modern classification handles multiple related intentions within one agent well) — but agents should stay clearly distinct **from each other**.
 - **Don't create an agent for everything.** General FAQs and static information belong in the central knowledge base (`knowledgebase_*` tools) and are answered without a dedicated agent. Create a specialised agent when you need custom instructions, dedicated resources, or AI actions (processes, real-time data).
-- **Every agent needs knowledge — a pure action agent does not work.** If retrieval finds nothing, the pipeline only falls back to web-search and CSV-search actions; a webhook action does not qualify, so the answer stops at the no-knowledge fallback (error code 101) before the action can ever run. Give an action agent at least one knowledge article describing what it can do for the user.
+- **Every agent needs retrievable knowledge — a pure action agent does not work.** When the retrieval step returns nothing at all, the pipeline only falls back to web-search and CSV-search actions; a webhook action does not qualify, so it stops at the no-knowledge fallback (error code 101) before the action can run. One knowledge article describing what the agent can do for the user is enough to clear that gate. (This is a different gate from the later "was the knowledge useful" check, which the intent-level `ignoreKnowledgeCheck` setting disables and which an executed action satisfies anyway — so seeing `ignoreKnowledgeCheck: true` in a playground response does not mean the first gate is off.)
 
 ## Standard workflow: new agent end-to-end
 
@@ -51,15 +51,29 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 
 **The LLM cannot read conversation context variables.** Neither parameter filling nor answer generation sees them. Writing "if no city is given, use the context `user_city`" into a `paramDescription` looks reasonable and fails silently — the parameter arrives empty, and the answer says "at your location" without ever knowing the location. Contexts reach a webhook through exactly one path: Handlebars in the URL, headers or body. There is no second one.
 
+Note the asymmetry that makes this confusing: the **action's response is visible** to the LLM — that is what `instruction_after` operates on — while the **stored context is not**. Data flows page → context → Handlebars → webhook → response → LLM, and never sideways from the context into the prompt.
+
 Because of that, "value from the conversation" and "value from the page context" are **two separate actions** on the same agent, not one action with a fallback: one declares an LLM parameter, the other declares none and puts `{{context_name}}` in the URL. The LLM picks between them reliably from their `description`.
+
+**Actions do not chain.** Exactly one round of action calls runs per answer; afterwards the actions are no longer offered to the model. An `instruction_after` along the lines of "now run the geocoding result through the weather action" therefore cannot work — the model keeps asking for a call it can no longer reach, which surfaces as a repeating instruction and a playground timeout rather than as an error. Design each action as one self-sufficient HTTP call. Where the temptation to chain exists, close it explicitly: "this response is the final information, do not call another action."
 
 ### Worked example: weather forecast for the visit day
 
 Open-Meteo is public and needs no API key, which makes it a good first action for a tourism or leisure bot — "is Saturday a good day to come?" becomes answerable. The location is fixed (the customer's own site), only the date comes from the conversation.
 
-**Choose an API you can narrow down.** The whole webhook response is stored in the context and goes into the LLM prompt, so payload size is a running token cost and a source of distraction. The `daily=` field selection below returns well under a kilobyte; a weather endpoint that dumps everything returns tens of kilobytes for the same one-sentence answer. Prefer an API that lets you name the fields you want, and name them.
+**Choose an API you can narrow down.** The whole webhook response is stored in the context and goes into the LLM prompt, so payload size is a running token cost and a source of distraction. The `daily=` field selection below returns well under a kilobyte; a weather endpoint that dumps everything returns tens of kilobytes for the same one-sentence answer. Prefer an API that lets you name the fields you want, and name them — then check the reduced set still covers what the agent promises. A trimmed weather payload that drops precipitation probability is small and cheap and can no longer answer "will it rain on Saturday?", which is the question people actually ask.
 
-**0. Give the agent knowledge.** A `knowledgebase_create` article like "We can tell you the weather forecast for our location for any day within the next two weeks" is enough. Without it the agent stops at the no-knowledge fallback and the action never runs.
+**0. Give the agent knowledge.** One `knowledgebase_create` article like "We can tell you the weather forecast for our location for any day within the next two weeks" is enough — without any retrievable knowledge the agent stops at the no-knowledge fallback and the action never runs. Scope it to the agent with `activeOn`:
+
+```json
+{
+  "title": "Weather information",
+  "body": "We can tell you the weather forecast for our location for any day within the next two weeks.",
+  "activeOn": [{ "agent": "faq_wetter", "channel": "nZdovv0h" }]
+}
+```
+
+Both fields are plain identifiers (`ai_agent_list` has them); the defaults are the literal strings `default`/`default`. Known quirk: the response may echo `channel: "null"` even though the scoping applies — verify with `knowledgebase_retrieve` rather than trusting the echo.
 
 **1. `webhook_create`**
 
@@ -74,6 +88,8 @@ Open-Meteo is public and needs no API key, which makes it a good first action fo
 ```
 
 `sendBodyOption: "none"` matters here — the default would attach moinAI's payload to a GET request.
+
+A date range in the URL keeps the LLM parameter visible, which is the point of this example. In production `forecast_days=7` plus "`daily.time[0]` is today, `[1]` tomorrow" in `instruction_after` is sturdier: one call covers the whole window, and a date outside the supported range cannot break the URL.
 
 **2. `webhook_test`** — a failure here is a connectivity or URL problem. A pass says nothing about `{{forecast_date}}`, which is still unresolved at this point.
 
@@ -129,9 +145,20 @@ Test it with `ai_playground_test` and `context: [{"name": "user_latitude", "valu
 
 Three things to get right:
 
-- **An empty placeholder produces a valid URL, not an error.** If the visitor declines the permission prompt the contexts are never set, `{{user_latitude}}` resolves to an empty string, and many APIs happily answer something — geo-IP services fall back to the *server's* location, and the bot then reports the weather in a datacentre with full confidence. No exception, no `webhook_error`. Guard it from both sides: shape the URL so an empty value fails loudly (Open-Meteo returns an empty body without coordinates), and add an `instruction_after` that checks the location echoed in the response against what the user asked for before using it.
+- **An empty placeholder produces a valid URL, not an error.** If the visitor declines the permission prompt the contexts are never set, `{{user_latitude}}` resolves to an empty string, and many APIs happily answer something — geo-IP services fall back to the *server's* location, and the bot then reports the weather in a datacentre with full confidence. No exception, no `webhook_error`. Note that this is quieter than a broken template: an *unresolved* `{{…}}` reaches the API as a literal and usually earns a 4xx, while an *empty* value often earns a 200. Open-Meteo answers HTTP 200 with a zero-byte body when the coordinates are empty. **The reliable guard is `instruction_after`**: have it compare the location echoed in the response against what the user asked for, and refuse to answer on a mismatch or an empty response. Do not rely on the endpoint to complain.
 - Keep the site's own coordinates as a fallback: set them via `addContext` on page load and overwrite them only once the real position is known.
 - The `user_` prefix is not cosmetic: `sendBodyOption: 'default'` ships exactly `uniqueUserId` and the `user_*` contexts, so a context named `latitude` would be missing from the default payload.
+
+### When the user names the place
+
+The third case — the user says "how is the weather in Kaltenkirchen?" — is the hardest, because Open-Meteo takes coordinates and not names. Letting the LLM fill `latitude`/`longitude` directly works better than expected: for an unambiguous German town of 20,000 it matched the official geocoder exactly. Chaining a geocoding action in front of it is not an option (see above), so this is usually the right call.
+
+It fails silently on **ambiguous names**, though. "Springfield" was answered with weather for "Springfield, Germany" — a place that does not exist — with no error and no follow-up question. Two things contain it:
+
+- A `paramDescription` that forbids the guess explicitly: do not execute the action when the name exists in several countries, ask which one is meant; never relocate a place to Germany just because the user writes German.
+- A `instruction_after` that requires naming place, region and country in the answer, so a wrong match becomes visible to the user instead of hiding behind a plausible temperature.
+
+Calibrating that is the actual work: a first attempt phrased as "only if you really know the location" swung too far and made the bot refuse the unambiguous town. Test both ends — a clearly known place and a deliberately ambiguous one — after every wording change.
 
 ## Widget JS API
 
@@ -165,6 +192,8 @@ Never write the correct facts into instructions or into feedback as a shortcut. 
 1. Is it a rule, not content? Nothing with a number, price, date, or name that could change belongs in instructions.
 2. Does it hold for every question this agent handles? On a broad agent (general FAQ) a topic-specific rule bleeds into unrelated answers — use `ai_feedback_answer` instead. The same rule is legitimate on a narrow agent whose entire scope is that topic (e.g. a dedicated pricing agent: "always answer with the tariff table").
 
+**On an agent with AI actions, instructions can veto an action.** They do not only shape the answer, they compete with the action `description`s for the tool choice. A rule like "if the place is unclear, ask instead of guessing" made the bot reply "you did not give me a place" to *"will it be warm at my place on Saturday?"* — with the visitor's location sitting in the context and a location action attached that would have answered it. The same agent still handled "is it raining here today?" correctly; only the combination with a target day tripped it. After every instruction change, re-test **all** actions of the agent, not just the question the instruction was written for.
+
 Tone and style are governed bot-wide by the persona/communication rules in the Hub — don't duplicate them per agent.
 
 Test staging by default. `ai_playground_test` with `staging: false` tests the production state — useful to compare before/after a deploy.
@@ -172,6 +201,7 @@ Test staging by default. `ai_playground_test` with `staging: false` tests the pr
 ## Gotchas
 
 - `ai_playground_test` executes real LLM calls and REALLY fires attached webhooks. It never touches live customer conversations, but the outbound calls are real.
+- `ai_playground_test` can run into an MCP timeout when an action is slow or the model loops on one. A timeout is not by itself a sign of a broken configuration — retry once, and only start debugging the action if it repeats.
 - **Error code 101 ("No knowledge found" / no similar documents) is often the CORRECT outcome, not a bug.** When a test message asks something the bot has no knowledge about — or deliberately should not answer — the bot is SUPPOSED to hit its no-knowledge/not-understood fallback, and that is exactly what code 101 represents. Only treat it as a problem if the topic **should** be covered (then attach the missing knowledge); do not "fix" it by adding out-of-scope content.
 - Playground responses omit retrieved knowledge by default to stay small; pass `includeKnowledge: true` when debugging retrieval.
 - Conversation history uses roles `user`/`bot` (oldest first) and influences both agent selection and the answer.

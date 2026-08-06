@@ -47,13 +47,33 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 
 ## Tuning loop
 
-After each `ai_playground_test`:
+After each `ai_playground_test`, route the problem to the right tool — they are not interchangeable:
 
-- **Wrong agent selected?** → `ai_feedback_intent` with the message, the correct agent, and `feedback: true` (or `false` for the wrongly chosen one). This trains the classification index.
-- **Right agent, weak answer?**
-  - Adjust subject-specific rules and scope: `ai_agent_get_instructions` → `ai_agent_set_instructions`. Keep instructions about the *subject* (what to cover, what to exclude, domain rules) — tone and style are governed bot-wide by the persona/communication rules in the Hub, don't duplicate them per agent.
-  - Correct a specific answer: `ai_feedback_answer` with the `ragProtocol._id` from the playground response and a short correction (max 500 chars). Describe what the correct answer should *contain*, not how it should sound. This influences future similar answers via the retrieval index.
-- **Missing knowledge?** → `ai_resource_add` or the `knowledgebase_*` tools, then re-test.
+| Symptom | Fix |
+|---|---|
+| Wrong agent selected | `ai_feedback_intent` |
+| Facts missing, wrong, or outdated | resources — `ai_resource_add` / `ai_resource_update` / `knowledgebase_*` |
+| Facts correct, answer badly shaped | `ai_feedback_answer` |
+| Agent misbehaves on *every* question it handles | `ai_agent_set_instructions` |
+
+**Wrong agent selected** → `ai_feedback_intent` with the message, the correct agent, and `feedback: true` (or `false` for the wrongly chosen one). This trains the classification index.
+
+**Content problem — always fix the source, never the prompt.** Anything the bot states as fact (prices, dates, opening hours, product names, conditions) comes from knowledge, and that is the only place to fix it:
+
+- Content missing → `ai_resource_add` or `knowledgebase_create`
+- Page changed / index stale → `ai_resource_update` re-scrapes and re-indexes the resource
+- Page scraped incompletely (JS-rendered tables, accordions) → `ai_resource_update` with `scrapeOptions` (`waitFor`, `actions`, `includeTags`)
+
+Never write the correct facts into instructions or into feedback as a shortcut. That creates a second, invisible copy of the data that nobody maintains and that silently goes stale — and it hides the actual gap instead of closing it.
+
+**Answer shaping** → `ai_feedback_answer` with the `ragProtocol._id` from the playground response and a short correction (max 500 chars). This is the tool when the facts are right but the answer is incomplete, unstructured, too long, or misses an aspect — **including how this type of answer should be presented** ("list the tariffs as a markdown table, one row per tariff"). It applies to similar questions via the retrieval index, so it stays scoped to the topic it was given for. Don't restate the facts themselves here.
+
+**Instructions — last resort, and only for the whole agent.** `ai_agent_get_instructions` → `ai_agent_set_instructions` affects *every* answer the agent produces. Two checks before writing anything there:
+
+1. Is it a rule, not content? Nothing with a number, price, date, or name that could change belongs in instructions.
+2. Does it hold for every question this agent handles? On a broad agent (general FAQ) a topic-specific rule bleeds into unrelated answers — use `ai_feedback_answer` instead. The same rule is legitimate on a narrow agent whose entire scope is that topic (e.g. a dedicated pricing agent: "always answer with the tariff table").
+
+Tone and style are governed bot-wide by the persona/communication rules in the Hub — don't duplicate them per agent.
 
 Test staging by default. `ai_playground_test` with `staging: false` tests the production state — useful to compare before/after a deploy.
 

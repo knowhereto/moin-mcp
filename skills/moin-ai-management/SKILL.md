@@ -13,6 +13,8 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 
 **Channels.** Agents, actions, and resources are configured per channel (website widget, WhatsApp, ...). When you omit `channelId`, tools default to the bot's first channel — consistently across all tools, so create and test line up. Get channel IDs from `ai_agent_list`.
 
+**Channel configuration is Hub-only.** Each channel also carries settings that shape every answer on it: a use-case context text (which feeds agent classification), the persona (agent title and description), the tone-of-voice rules, the guardrail, the language configuration and whether answers use markdown. None of it is reachable through MCP — it lives on the live bot document, so writing it would take effect in production immediately and break the staging guarantee. When one of these is the real cause of a problem, say so plainly and hand it to the user to change in the Hub, rather than working around it in agent instructions.
+
 **Agents (intents).** A "KI Agent" is a RAG intent: it owns knowledge resources, custom instructions, AI actions, and a per-channel activation state.
 
 ## Designing good agents
@@ -194,7 +196,7 @@ Never write the correct facts into instructions or into feedback as a shortcut. 
 
 **On an agent with AI actions, instructions can veto an action.** They do not only shape the answer, they compete with the action `description`s for the tool choice. A rule like "if the place is unclear, ask instead of guessing" made the bot reply "you did not give me a place" to *"will it be warm at my place on Saturday?"* — with the visitor's location sitting in the context and a location action attached that would have answered it. The same agent still handled "is it raining here today?" correctly; only the combination with a target day tripped it. After every instruction change, re-test **all** actions of the agent, not just the question the instruction was written for.
 
-Tone and style are governed bot-wide by the persona/communication rules in the Hub — don't duplicate them per agent.
+Tone and style are governed by the **channel's** persona and tone-of-voice rules, not by the agent — don't restate them in agent instructions. Those are Hub-only settings (see "Channel configuration" above), so when the complaint is really about how the bot sounds, the fix is a Hub change, not an instruction.
 
 Test staging by default. `ai_playground_test` with `staging: false` tests the production state — useful to compare before/after a deploy.
 

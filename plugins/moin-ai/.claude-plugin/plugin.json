@@ -1,0 +1,21 @@
+{
+  "name": "moin-ai",
+  "displayName": "moinAI",
+  "version": "1.0.0",
+  "description": "Manage a moinAI customer service chatbot from Claude. Connects to the moinAI MCP server (https://api.moin.ai/mcp) to create and configure AI agents, write knowledge documents, attach websites and PDFs as knowledge, wire up webhook integrations as AI actions, and test answers in the playground. Ships the bot-management playbook as a skill, so Claude knows the staging/live model and the end-to-end workflows. All write operations are confined to staging. Requires a moinAI account; authenticates with your Hub login over OAuth.",
+  "author": {
+    "name": "moinAI",
+    "url": "https://www.moin.ai"
+  },
+  "homepage": "https://github.com/knowhereto/moin-mcp",
+  "repository": "https://github.com/knowhereto/moin-mcp",
+  "license": "MIT",
+  "keywords": [
+    "chatbot",
+    "customer-service",
+    "customer-support",
+    "conversational-ai",
+    "knowledge-base",
+    "mcp"
+  ]
+}

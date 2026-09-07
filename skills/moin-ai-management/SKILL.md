@@ -56,14 +56,36 @@ Deliver these as a short list with the **exact text to paste**, not as a diagnos
 
 - **Check `ai_agent_list` before creating.** Overlapping or duplicate agents are a main cause of misclassification — extend an existing agent before creating a similar new one.
 - Agents may cover a broader topic area (modern classification handles multiple related intentions within one agent well) — but agents should stay clearly distinct **from each other**.
-- **Don't create an agent for everything.** General FAQs and static information belong in the central knowledge base (`knowledgebase_*` tools) and are answered without a dedicated agent. Create a specialised agent when you need custom instructions, dedicated resources, or AI actions (processes, real-time data).
+- **Don't create an agent for everything.** General FAQs and static information belong in the central knowledge base as documents (`knowledgebase_create`, scoped to the fallback agent) and are answered without a dedicated agent. Create a specialised agent when you need custom instructions, dedicated resources, or AI actions (processes, real-time data).
 - **Every agent needs retrievable knowledge — a pure action agent does not work.** When the retrieval step returns nothing at all, the pipeline only falls back to web-search and CSV-search actions; a webhook action does not qualify, so it stops at the no-knowledge fallback (error code 101) before the action can run. One knowledge article describing what the agent can do for the user is enough to clear that gate. (This is a different gate from the later "was the knowledge useful" check, which the intent-level `ignoreKnowledgeCheck` setting disables and which an executed action satisfies anyway — so seeing `ignoreKnowledgeCheck: true` in a playground response does not mean the first gate is off.)
+
+## Where knowledge goes
+
+Three kinds of knowledge live in a bot, and picking the wrong one is not cosmetic: it decides who owns the content and whether your edits survive.
+
+**Documents — `knowledgebase_create`.** Markdown you write, stored in moinAI, the same object the Hub shows under Knowledge > Documents. This is the default for any new knowledge that is not a website or a PDF: FAQ answers, policies, product facts, the one article that tells an action agent what it can do for the user. Documents count against the character quota only, not against the resource-count quota.
+
+**Website and PDF resources — `ai_resource_add`.** For content that already lives under a URL and should stay tied to it. The resource is scraped and re-scraped from the source, so the source stays the single place the content is maintained.
+
+**External articles — readable, but not yours to write.** `EXTERNAL` articles are content that lives in a *foreign* system (helpdesk, CMS, PIM) and is pushed into the bot through the public Article API. MCP does not create them, and it should not repair them: an edit through `knowledgebase_update` holds only until the next sync overwrites it. `knowledgebase_retrieve` returns them next to documents, marked `type: "EXTERNAL"` — when their content is wrong, say that the fix belongs in the source system instead of patching it here.
+
+**Scope every document with `activeOn`.** A document created without `activeOn` is connected to no agent at all: it exists, it counts against the quota, and no answer can ever retrieve it. Pass agent and channel explicitly — both are plain identifiers from `ai_agent_list`:
+
+```json
+{
+  "title": "Weather information",
+  "body": "We can tell you the weather forecast for our location for any day within the next two weeks.",
+  "activeOn": [{ "agent": "faq_wetter", "channel": "nZdovv0h" }]
+}
+```
+
+`[{ "agent": "default", "channel": "default" }]` resolves to the bot's fallback agent on the first channel — the right scoping for general FAQ content that no specialised agent owns. On `knowledgebase_update`, `activeOn` replaces the whole list, so send it complete. Known quirk: the response may echo `channel: "null"` for the first channel even though the scoping applied — that is how the first channel is stored; verify with `knowledgebase_retrieve` rather than reading it as an error.
 
 ## Standard workflow: new agent end-to-end
 
 1. `ai_agent_create` — displayName, description (drives agent selection!), 3–5 typical user queries as samples.
 2. **The new agent is DEACTIVATED.** Activate it for testing: `ai_agent_set_status` with `status: "staging"`.
-3. `ai_resource_add` — attach knowledge (webpage/PDF URL). Prefer targeted pages over whole websites: a clean, focused data basis beats volume — irrelevant or duplicate content degrades answers. Indexing is asynchronous: the resource starts as `QUEUED`; poll `ai_agent_resources` until it is `TRAINED` before testing. If it ends up `FAILED`, the usual causes are scanned/password-protected PDFs, a blocked scraper, or JavaScript-rendered pages.
+3. Attach knowledge — `ai_resource_add` for a webpage/PDF URL, `knowledgebase_create` for a document you write yourself (see "Where knowledge goes"). Prefer targeted pages over whole websites: a clean, focused data basis beats volume — irrelevant or duplicate content degrades answers. Indexing is asynchronous: the resource starts as `QUEUED`; poll `ai_agent_resources` until it is `TRAINED` before testing. If it ends up `FAILED`, the usual causes are scanned/password-protected PDFs, a blocked scraper, or JavaScript-rendered pages.
 4. Control what gets scraped with `scrapeOptions` (Firecrawl parameters, on `ai_resource_add` or later via `ai_resource_update`, which re-scrapes):
    - `onlyMainContent: true` — strip navigation, headers, footers, sidebars (good default for content pages)
    - `excludeTags: ['nav', '.cookie-banner', '#comments']` / `includeTags: ['article', '.faq']` — CSS selectors to cut noise or scope precisely; when answers contain menu/footer text, this is the fix
@@ -208,7 +230,7 @@ After each `ai_playground_test`, route the problem to the right tool — they ar
 | Symptom | Fix |
 |---|---|
 | Wrong agent selected | `ai_feedback_intent` |
-| Facts missing, wrong, or outdated | resources — `ai_resource_add` / `ai_resource_update` / `knowledgebase_*` |
+| Facts missing, wrong, or outdated | knowledge — `knowledgebase_create/update` (documents) / `ai_resource_add` / `ai_resource_update` (URLs) |
 | Facts correct, answer badly shaped | `ai_feedback_answer` |
 | Agent misbehaves on *every* question it handles | `ai_agent_set_instructions` |
 
@@ -216,7 +238,7 @@ After each `ai_playground_test`, route the problem to the right tool — they ar
 
 **Content problem — always fix the source, never the prompt.** Anything the bot states as fact (prices, dates, opening hours, product names, conditions) comes from knowledge, and that is the only place to fix it:
 
-- Content missing → `ai_resource_add` or `knowledgebase_create`
+- Content missing → `knowledgebase_create` for knowledge you write yourself, `ai_resource_add` when it already exists under a URL
 - Page changed / index stale → `ai_resource_update` re-scrapes and re-indexes the resource
 - Page scraped incompletely (JS-rendered tables, accordions) → `ai_resource_update` with `scrapeOptions` (`waitFor`, `actions`, `includeTags`)
 
@@ -245,3 +267,5 @@ Test staging by default. `ai_playground_test` with `staging: false` tests the pr
 - `ai_agent_list` shows per-channel `state`: `success` = live, `warning` = staging only, `error` = deactivated. Check this first when an agent is "not working".
 - Webhook credentials (Basic Auth passwords) are write-only: they are stored but always redacted in responses.
 - If a tool returns 403 "MCP access is not enabled", the API key needs the MCP toggle in the Hub under API settings — see "When the tools are missing" above.
+- If only read tools (list/get/search, playground) appear in the tool list, the API key is scoped **read-only** — configuration changes need a key with the "Read & write" access level (Hub → API settings).
+- **A write tool that answers "… is not a demo bot" is a permission boundary, not a bug.** A connection authenticated with a moinAI Hub *admin* login (rather than an API key) may only change bots whose stage is `demo` — every customer bot is read-only for it, while the write tools stay listed either way. `bot_get` reports the stage, `bot_list` marks the writable bots with `demo: true`. Report the boundary and carry on read-only; never retry the call, and never offer to change the bot's stage yourself.

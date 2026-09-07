@@ -74,6 +74,30 @@ Then restart the CLI/IDE and verify with `/mcp` that `moin-ai` is connected and 
 - Remote servers must use `serverUrl`. The legacy Gemini CLI fields `url` and `httpUrl` are **not** supported and the server will silently fail to connect.
 - Antigravity does not expand environment variables in `mcp_config.json`, so the API key has to be written in plain text. Keep `.agents/mcp_config.json` out of version control (e.g. via `.gitignore`) when you use the project-scoped variant.
 
+### Connecting with your Hub login instead (OAuth)
+
+An API key belongs to exactly one bot. If you manage several, you can authenticate as a moinAI Hub user instead and reach all of them over one connection. Add the server **without** a header:
+
+```bash
+claude mcp add --transport http moin-ai https://api.moin.ai/mcp
+```
+
+The client discovers the authorization server, registers itself, and opens your browser. Log in to the Hub as usual and you land on a consent page where you choose two things:
+
+| Choice | Options |
+|---|---|
+| Which bots the assistant may reach | any subset of the bots your account can access |
+| What it may do | `mcp:read` — inspect the configuration and test in the playground<br>`mcp:write` — additionally make staging changes |
+
+Your Hub role caps what you can grant: only editors and owners can hand out `mcp:write`.
+
+Two practical differences to the API key:
+
+- **Bot selection moves into the call.** With one bot in the grant, nothing changes. With several, tools take a `botId` argument, and a `bot_list` tool shows what the token covers. Ask the assistant to work on a bot by name and it will resolve it.
+- **No key to store.** Nothing in plain text in a config file — which also removes the Antigravity caveat above about environment variables.
+
+Everything else is identical, including the rule that writes only ever reach staging.
+
 ## 3. Install the playbook (recommended)
 
 The MCP tools are self-describing, but the skill teaches the assistant the *system knowledge*: the staging/live model, channel handling, the end-to-end workflows (create agent → add knowledge → activate → test → deploy), the tuning loop with feedback tools, and common pitfalls.

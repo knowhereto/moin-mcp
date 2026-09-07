@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "moin-ai": {
+      "type": "http",
+      "url": "https://api.moin.ai/mcp"
+    }
+  }
+}

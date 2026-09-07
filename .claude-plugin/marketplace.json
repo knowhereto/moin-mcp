@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "moin-ai",
+  "description": "moinAI plugins for Claude — manage your customer service chatbot from your assistant",
+  "owner": {
+    "name": "moinAI",
+    "url": "https://www.moin.ai"
+  },
+  "plugins": [
+    {
+      "name": "moin-ai",
+      "description": "Manage a moinAI customer service chatbot from Claude — create and configure AI agents, write knowledge documents, attach websites and PDFs as knowledge, wire up webhook integrations as AI actions, and test answers in the playground. Includes the bot-management playbook as a skill. All write operations are confined to staging.",
+      "author": {
+        "name": "moinAI",
+        "url": "https://www.moin.ai"
+      },
+      "category": "productivity",
+      "source": "./plugins/moin-ai",
+      "homepage": "https://github.com/knowhereto/moin-mcp"
+    }
+  ]
+}

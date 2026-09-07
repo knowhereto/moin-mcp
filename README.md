@@ -2,16 +2,30 @@
 
 Connect AI assistants like **Claude** and **Google Antigravity** to your [moinAI](https://moin.ai) chatbot via the **moinAI MCP server**, and give them the playbook to manage your bot end-to-end: create AI agents, attach knowledge and webhook actions, test conversations in the playground, and tune agent behaviour.
 
-> **Note:** The moinAI MCP server is integrated into the moinAI platform as a remote MCP endpoint (Streamable HTTP). The standalone npm package `@moin_ai/moin-mcp` that previously lived in this repository is **deprecated** — no local server process is needed anymore. This repository now distributes the client integrations: setup instructions and the agent skill.
+> **Note:** The moinAI MCP server is integrated into the moinAI platform as a remote MCP endpoint (Streamable HTTP). The standalone npm package `@moin_ai/moin-mcp` that previously lived in this repository is **deprecated** — no local server process is needed anymore. This repository now distributes the client integrations: the **Claude plugin** (`plugins/moin-ai`, which bundles the server connection and the playbook), the agent skill on its own, and setup instructions for clients the plugin does not cover.
 
 ---
 
 ## 1. Requirements
 
 - **Access to the moinAI platform** ([moin.ai](https://moin.ai))
-- **API key with MCP access**: in the moinAI Hub go to *Bot Settings → API Settings*, copy the API key and enable **"Allow MCP access"**. One API key belongs to one bot — the assistant manages exactly that bot.
+- **Either** a moinAI Hub login — used for the OAuth flow, reaches every bot your account can access, and is what the plugin below uses;
+- **or** an **API key with MCP access**: in the moinAI Hub go to *Bot Settings → API Settings*, copy the API key and enable **"Allow MCP access"**. One API key belongs to one bot — the assistant manages exactly that bot.
 
-## 2. Connect the MCP server
+## 2. Install the plugin (Claude Code and Cowork)
+
+The quickest path. The plugin bundles the MCP server *and* the playbook, so one install replaces the manual server setup and the skill copy below:
+
+```bash
+claude plugin marketplace add knowhereto/moin-mcp
+claude plugin install moin-ai@moin-ai
+```
+
+Start a new session and run `/mcp` — the server appears as `plugin:moin-ai:moin-ai` and asks you to authenticate. Log in to the Hub, pick your bots and the permission level on the consent page (see [OAuth](#connecting-with-your-hub-login-instead-oauth) below), and you're connected. The playbook loads by itself.
+
+Everything after this point is for setups the plugin does not cover: Claude Desktop, Google Antigravity, or connecting with an API key instead of a Hub login.
+
+## 3. Connect the MCP server manually
 
 **Endpoint:** `https://api.moin.ai/mcp` (Streamable HTTP, authenticated per request via the `x-api-key` header)
 
@@ -98,11 +112,11 @@ Two practical differences to the API key:
 
 Everything else is identical, including the rule that writes only ever reach staging.
 
-## 3. Install the playbook (recommended)
+## 4. Install the playbook manually
 
 The MCP tools are self-describing, but the skill teaches the assistant the *system knowledge*: the staging/live model, channel handling, the end-to-end workflows (create agent → add knowledge → activate → test → deploy), the tuning loop with feedback tools, and common pitfalls.
 
-The same skill works for Claude and Antigravity — only the install location differs.
+If you installed the plugin in section 2, you already have this — skip ahead. Otherwise the same skill works for Claude and Antigravity, and only the install location differs.
 
 ```bash
 git clone https://github.com/knowhereto/moin-mcp.git
@@ -111,7 +125,7 @@ git clone https://github.com/knowhereto/moin-mcp.git
 ### Claude
 
 ```bash
-cp -r moin-mcp/skills/moin-ai-management ~/.claude/skills/
+cp -r moin-mcp/plugins/moin-ai/skills/moin-ai-management ~/.claude/skills/
 ```
 
 (Or into `.claude/skills/` of a project for project-scoped use.) Claude loads the skill automatically when you work on your moinAI bot.
@@ -119,12 +133,12 @@ cp -r moin-mcp/skills/moin-ai-management ~/.claude/skills/
 ### Google Antigravity
 
 ```bash
-cp -r moin-mcp/skills/moin-ai-management ~/.gemini/config/skills/
+cp -r moin-mcp/plugins/moin-ai/skills/moin-ai-management ~/.gemini/config/skills/
 ```
 
 `~/.gemini/config/skills/` is recognised by both the Antigravity CLI and the IDE. For project-scoped use, copy the folder into `.agents/skills/` in your workspace root instead. Check with `/skills` that `moin-ai-management` is loaded.
 
-## 4. What the assistant can do
+## 5. What the assistant can do
 
 | Area | Tools |
 |------|-------|

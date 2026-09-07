@@ -5,11 +5,16 @@ description: Manage a moinAI chatbot through the moinAI MCP server — create an
 
 # moinAI Bot Management
 
-You are connected to a moinAI bot through the moinAI MCP server. One API key = one bot: every tool call operates on the bot the key belongs to — there is no bot-id parameter anywhere.
+You are connected to a moinAI bot through the moinAI MCP server. Every tool call operates on one bot. How that bot is chosen depends on how the connection is authenticated:
+
+- **API key** (`x-api-key` header) — one key belongs to one bot, and that is the bot, always. No bot selection anywhere.
+- **Hub login** (OAuth, no header) — the grant can cover several bots. With one bot in the grant nothing changes; with several, **every tool call must carry a `botId`** argument, and `bot_list` shows which ids the connection covers. Omitting it answers with an error naming the available bots.
+
+A Hub login also brings a role with it, and an admin role is read-only on everything but sales demo bots — see the last of the gotchas.
 
 ## Start with `bot_get`
 
-**Call `bot_get` first, in every session, before any other tool.** It costs one call and it is the difference between configuring a bot and configuring a bot you understand. It returns the bot's name and id, and per channel: the use-case context, the persona, the tone-of-voice rules, the guardrail state, the language configuration, markdown mode — and the channel ids that every other tool takes.
+**Call `bot_get` first, in every session, before any other tool.** It costs one call and it is the difference between configuring a bot and configuring a bot you understand. It returns the bot's name and id, its languages, its lifecycle `stage` with a `demo` flag (which decides whether an admin connection may write here at all), the fallback agent, and per channel: the use-case context, the persona, the tone-of-voice rules, the guardrail state, the language configuration, markdown mode — and the channel ids that every other tool takes.
 
 Read it rather than just fetching it. Four things in that response change what you should do next:
 
@@ -22,10 +27,10 @@ Read it rather than just fetching it. Four things in that response change what y
 
 The skill loads from the filesystem, the tools arrive over the network — so you can be active in a session where the MCP server is not reachable at all. If `bot_get` or any other tool is unavailable, stop and fix the connection instead of improvising around it. Say plainly that you cannot reach the bot, then work out which case this is:
 
-- **No moinAI tools at all.** The server is not connected. The endpoint is `https://api.moin.ai/mcp` (Streamable HTTP), authenticated with an `x-api-key` header; per-client setup instructions live at https://github.com/knowhereto/moin-mcp. Point the user at the section for their client rather than guessing at their config file.
+- **No moinAI tools at all.** The server is not connected. The endpoint is `https://api.moin.ai/mcp` (Streamable HTTP), authenticated either with an `x-api-key` header or — added without a header — by logging in to the Hub through the OAuth flow; per-client setup instructions live at https://github.com/knowhereto/moin-mcp. Point the user at the section for their client rather than guessing at their config file.
 - **403 "MCP access is not enabled for this API key".** The key is valid but MCP is not switched on for it. In the Hub: bot settings → API settings → enable "Allow MCP access". The key itself does not need to be replaced or re-added.
-- **The client says "needs authentication", or offers a login flow.** Almost always the same cause as above. The moinAI endpoint does not use OAuth; clients turn our 403 into a generic authentication failure and offer a sign-in that does not exist. Do not send the user through it — have them check the MCP toggle first. If they want to see the real message, a direct request to the endpoint with the key returns it verbatim.
-- **Tools exist but every call fails.** Check whether the key belongs to the bot the user thinks they are working on. One key = one bot, and there is no bot-id parameter to correct a mismatch with.
+- **The client says "needs authentication", or offers a login flow.** Which of two opposite things this is depends on how the server was added. **Added without a header** — this is the real OAuth flow, the supported way to reach several bots over one connection: have the user complete it, log in to the Hub and pick bots and scope on the consent page. **Added with an `x-api-key` header** — the flow leads nowhere: the client is rendering the 403 above as a generic authentication failure and offering a sign-in that does not apply to a key connection. Do not send the user through that one; have them check the MCP toggle instead. If they want to see the real message, a direct request to the endpoint with the key returns it verbatim.
+- **Tools exist but every call fails.** Check that the connection is on the bot the user thinks they are working on — `bot_get` reports name and id. On an API key that is the only bot it can reach, so a mismatch means the wrong key: there is nothing to correct in the call itself. On a Hub login, pass the right `botId` (from `bot_list`) instead.
 
 Never fabricate a bot state you could not read, and never fall back to giving Hub click-instructions for something the tools are supposed to do — a missing connection is worth fixing once.
 
@@ -33,7 +38,7 @@ Never fabricate a bot state you could not read, and never fall back to giving Hu
 
 **Environments.** Every bot has a `staging` (preview) and a `live` (production) environment. ALL write operations through MCP land in staging — this is enforced server-side, not a convention. **There is NO way to publish to live via MCP.** Everything configured through MCP (agents, actions, instructions, resources) becomes effective in production only after the user runs the content deployment in the moinAI Hub. When the configuration is tested and done, tell the user to deploy in the Hub. Reading the live state is possible (`stageName: "live"` on read tools, `staging: false` in the playground).
 
-**Channels.** Agents, actions, and resources are configured per channel (website widget, WhatsApp, ...). When you omit `channelId`, tools default to the bot's first channel — consistently across all tools, so create and test line up. Get channel IDs from `ai_agent_list`.
+**Channels.** Agents, actions, and resources are configured per channel (website widget, WhatsApp, ...). When you omit `channelId`, tools default to the bot's first channel — consistently across all tools, so create and test line up. Channel ids come from `bot_get`; `ai_agent_list` repeats them per agent.
 
 **Channel configuration is readable, but Hub-only to change.** Each channel carries settings that shape every answer on it: the use-case context (which feeds agent classification), the persona, the tone-of-voice rules, the guardrail, the language configuration and markdown mode. `bot_get` shows all of them; no MCP tool changes them. They live on the live bot document, so writing them would take effect in production immediately and break the staging guarantee. When one of these is the real cause of a problem, say so plainly and hand the user something to apply in the Hub — see below — rather than compensating for it in agent instructions.
 

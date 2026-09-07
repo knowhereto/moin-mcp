@@ -1,6 +1,6 @@
 ---
 name: moin-ai-management
-description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, or asks about the moinAI website widget's JavaScript API.
+description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, asks about the moinAI website widget's JavaScript API, or is trying to connect an assistant to their moinAI bot in the first place.
 ---
 
 # moinAI Bot Management
@@ -17,6 +17,17 @@ Read it rather than just fetching it. Four things in that response change what y
 - **Persona and tone-of-voice rules** are already in force centrally. Anything you would have written into agent instructions about voice is redundant, and often conflicting.
 - **The language configuration** tells you which languages an answer has to hold up in — attaching German-only knowledge to a channel serving twelve languages is a finding, not a detail.
 - **Multiple channels** mean you have to choose one deliberately instead of letting the tools default to the first.
+
+## When the tools are missing
+
+The skill loads from the filesystem, the tools arrive over the network — so you can be active in a session where the MCP server is not reachable at all. If `bot_get` or any other tool is unavailable, stop and fix the connection instead of improvising around it. Say plainly that you cannot reach the bot, then work out which case this is:
+
+- **No moinAI tools at all.** The server is not connected. The endpoint is `https://api.moin.ai/mcp` (Streamable HTTP), authenticated with an `x-api-key` header; per-client setup instructions live at https://github.com/knowhereto/moin-mcp. Point the user at the section for their client rather than guessing at their config file.
+- **403 "MCP access is not enabled for this API key".** The key is valid but MCP is not switched on for it. In the Hub: bot settings → API settings → enable "Allow MCP access". The key itself does not need to be replaced or re-added.
+- **The client says "needs authentication", or offers a login flow.** Almost always the same cause as above. The moinAI endpoint does not use OAuth; clients turn our 403 into a generic authentication failure and offer a sign-in that does not exist. Do not send the user through it — have them check the MCP toggle first. If they want to see the real message, a direct request to the endpoint with the key returns it verbatim.
+- **Tools exist but every call fails.** Check whether the key belongs to the bot the user thinks they are working on. One key = one bot, and there is no bot-id parameter to correct a mismatch with.
+
+Never fabricate a bot state you could not read, and never fall back to giving Hub click-instructions for something the tools are supposed to do — a missing connection is worth fixing once.
 
 ## Core concepts
 
@@ -233,5 +244,4 @@ Test staging by default. `ai_playground_test` with `staging: false` tests the pr
 - Conversation history uses roles `user`/`bot` (oldest first) and influences both agent selection and the answer.
 - `ai_agent_list` shows per-channel `state`: `success` = live, `warning` = staging only, `error` = deactivated. Check this first when an agent is "not working".
 - Webhook credentials (Basic Auth passwords) are write-only: they are stored but always redacted in responses.
-- If a tool returns 403 "MCP access is not enabled", the API key needs the MCP toggle in the Hub under API settings.
-- If only read tools (list/get/search, playground) appear in the tool list, the API key is scoped **read-only** — configuration changes need a key with the "Read & write" access level (Hub → API settings).
+- If a tool returns 403 "MCP access is not enabled", the API key needs the MCP toggle in the Hub under API settings — see "When the tools are missing" above.

@@ -86,10 +86,10 @@ The client discovers the authorization server, registers itself, and opens your 
 
 | Choice | Options |
 |---|---|
-| Which bots the assistant may reach | any subset of the bots your account can access |
+| Which bots the assistant may reach | any subset of the bots your account can access — admin accounts always cover all of theirs, so the page lists them instead of offering a choice |
 | What it may do | `mcp:read` — inspect the configuration and test in the playground<br>`mcp:write` — additionally make staging changes |
 
-Your Hub role caps what you can grant: only editors and owners can hand out `mcp:write`.
+Your Hub role caps what you can grant. Editors and owners can hand out `mcp:write` for their own bots. An **admin** account reaches every bot it administrates, so it is held to read on all of them — except sales demo bots (lifecycle stage `demo`, set by moinAI staff): it can grant `mcp:write` as soon as at least one of those is in reach, and the write tools then work on those bots only. The consent page says which case applies to you.
 
 Two practical differences to the API key:
 
@@ -128,6 +128,7 @@ cp -r moin-mcp/skills/moin-ai-management ~/.gemini/config/skills/
 
 | Area | Tools |
 |------|-------|
+| Bot overview | `bot_get` — name, stage, languages and every channel's configuration; `bot_list` on a multi-bot Hub login |
 | Knowledge documents | `knowledgebase_search/create/retrieve/update/delete` — Markdown documents written in moinAI |
 | Webhook integrations | `webhook_list/get/create/update/delete/test` |
 | AI agents | `ai_agent_list/create/set_status`, `ai_agent_get/set_instructions` |

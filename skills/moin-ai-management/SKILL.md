@@ -1,11 +1,33 @@
 ---
 name: moin-ai-management
-description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, or asks about the moinAI website widget's JavaScript API.
+description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, asks about the moinAI website widget's JavaScript API, or is trying to connect an assistant to their moinAI bot in the first place.
 ---
 
 # moinAI Bot Management
 
 You are connected to a moinAI bot through the moinAI MCP server. One API key = one bot: every tool call operates on the bot the key belongs to — there is no bot-id parameter anywhere.
+
+## Start with `bot_get`
+
+**Call `bot_get` first, in every session, before any other tool.** It costs one call and it is the difference between configuring a bot and configuring a bot you understand. It returns the bot's name and id, and per channel: the use-case context, the persona, the tone-of-voice rules, the guardrail state, the language configuration, markdown mode — and the channel ids that every other tool takes.
+
+Read it rather than just fetching it. Four things in that response change what you should do next:
+
+- **The channel use case** tells you what this bot is *for*. A proposed agent that falls outside it usually should not be built at all — raise that before building it.
+- **Persona and tone-of-voice rules** are already in force centrally. Anything you would have written into agent instructions about voice is redundant, and often conflicting.
+- **The language configuration** tells you which languages an answer has to hold up in — attaching German-only knowledge to a channel serving twelve languages is a finding, not a detail.
+- **Multiple channels** mean you have to choose one deliberately instead of letting the tools default to the first.
+
+## When the tools are missing
+
+The skill loads from the filesystem, the tools arrive over the network — so you can be active in a session where the MCP server is not reachable at all. If `bot_get` or any other tool is unavailable, stop and fix the connection instead of improvising around it. Say plainly that you cannot reach the bot, then work out which case this is:
+
+- **No moinAI tools at all.** The server is not connected. The endpoint is `https://api.moin.ai/mcp` (Streamable HTTP), authenticated with an `x-api-key` header; per-client setup instructions live at https://github.com/knowhereto/moin-mcp. Point the user at the section for their client rather than guessing at their config file.
+- **403 "MCP access is not enabled for this API key".** The key is valid but MCP is not switched on for it. In the Hub: bot settings → API settings → enable "Allow MCP access". The key itself does not need to be replaced or re-added.
+- **The client says "needs authentication", or offers a login flow.** Almost always the same cause as above. The moinAI endpoint does not use OAuth; clients turn our 403 into a generic authentication failure and offer a sign-in that does not exist. Do not send the user through it — have them check the MCP toggle first. If they want to see the real message, a direct request to the endpoint with the key returns it verbatim.
+- **Tools exist but every call fails.** Check whether the key belongs to the bot the user thinks they are working on. One key = one bot, and there is no bot-id parameter to correct a mismatch with.
+
+Never fabricate a bot state you could not read, and never fall back to giving Hub click-instructions for something the tools are supposed to do — a missing connection is worth fixing once.
 
 ## Core concepts
 
@@ -13,9 +35,22 @@ You are connected to a moinAI bot through the moinAI MCP server. One API key = o
 
 **Channels.** Agents, actions, and resources are configured per channel (website widget, WhatsApp, ...). When you omit `channelId`, tools default to the bot's first channel — consistently across all tools, so create and test line up. Get channel IDs from `ai_agent_list`.
 
-**Channel configuration is Hub-only.** Each channel also carries settings that shape every answer on it: a use-case context text (which feeds agent classification), the persona (agent title and description), the tone-of-voice rules, the guardrail, the language configuration and whether answers use markdown. None of it is reachable through MCP — it lives on the live bot document, so writing it would take effect in production immediately and break the staging guarantee. When one of these is the real cause of a problem, say so plainly and hand it to the user to change in the Hub, rather than working around it in agent instructions.
+**Channel configuration is readable, but Hub-only to change.** Each channel carries settings that shape every answer on it: the use-case context (which feeds agent classification), the persona, the tone-of-voice rules, the guardrail, the language configuration and markdown mode. `bot_get` shows all of them; no MCP tool changes them. They live on the live bot document, so writing them would take effect in production immediately and break the staging guarantee. When one of these is the real cause of a problem, say so plainly and hand the user something to apply in the Hub — see below — rather than compensating for it in agent instructions.
 
 **Agents (intents).** A "KI Agent" is a RAG intent: it owns knowledge resources, custom instructions, AI actions, and a per-channel activation state.
+
+## Recommending Hub changes
+
+Everything `bot_get` shows is read-only through MCP, which makes recommendations your main lever on it. Review the configuration once per session, unprompted, and raise what you find — the user cannot act on a problem you noticed and kept to yourself.
+
+Worth checking on every bot, because both are commonly left at their defaults and both degrade answers quietly:
+
+- **The channel use case** (the Hub labels this field "Use Case"). It feeds agent classification, so a channel that says only "Service Bot" gives the classifier almost nothing to route with, and an empty one gives it nothing at all. Propose a concrete replacement covering who the visitors are, what the channel is for, which topics belong to it and — just as useful — which explicitly do not.
+- **Persona and tone of voice.** An empty `agentTitle`/`agentDescription` and tone rules still sitting at the default `["be helpful"]` mean the bot has no defined voice. Every agent-level instruction that tries to compensate for that is duplicated work that will drift apart.
+
+Also flag when you see it: languages configured that the knowledge does not cover, markdown off while answers contain lists or tables, a guardrail disabled on a public channel, or a channel use case that contradicts the agents actually attached to it.
+
+Deliver these as a short list with the **exact text to paste**, not as a diagnosis — "your use case description is thin" helps nobody; a ready-to-use paragraph does. Keep it to what you actually observed. And keep it separate from the task at hand: finish what the user asked for first, then add the recommendations at the end.
 
 ## Designing good agents
 
@@ -209,5 +244,4 @@ Test staging by default. `ai_playground_test` with `staging: false` tests the pr
 - Conversation history uses roles `user`/`bot` (oldest first) and influences both agent selection and the answer.
 - `ai_agent_list` shows per-channel `state`: `success` = live, `warning` = staging only, `error` = deactivated. Check this first when an agent is "not working".
 - Webhook credentials (Basic Auth passwords) are write-only: they are stored but always redacted in responses.
-- If a tool returns 403 "MCP access is not enabled", the API key needs the MCP toggle in the Hub under API settings.
-- If only read tools (list/get/search, playground) appear in the tool list, the API key is scoped **read-only** — configuration changes need a key with the "Read & write" access level (Hub → API settings).
+- If a tool returns 403 "MCP access is not enabled", the API key needs the MCP toggle in the Hub under API settings — see "When the tools are missing" above.

@@ -7,15 +7,39 @@ description: Manage a moinAI chatbot through the moinAI MCP server — create an
 
 You are connected to a moinAI bot through the moinAI MCP server. One API key = one bot: every tool call operates on the bot the key belongs to — there is no bot-id parameter anywhere.
 
+## Start with `bot_get`
+
+**Call `bot_get` first, in every session, before any other tool.** It costs one call and it is the difference between configuring a bot and configuring a bot you understand. It returns the bot's name and id, and per channel: the use-case context, the persona, the tone-of-voice rules, the guardrail state, the language configuration, markdown mode — and the channel ids that every other tool takes.
+
+Read it rather than just fetching it. Four things in that response change what you should do next:
+
+- **The channel use case** tells you what this bot is *for*. A proposed agent that falls outside it usually should not be built at all — raise that before building it.
+- **Persona and tone-of-voice rules** are already in force centrally. Anything you would have written into agent instructions about voice is redundant, and often conflicting.
+- **The language configuration** tells you which languages an answer has to hold up in — attaching German-only knowledge to a channel serving twelve languages is a finding, not a detail.
+- **Multiple channels** mean you have to choose one deliberately instead of letting the tools default to the first.
+
 ## Core concepts
 
 **Environments.** Every bot has a `staging` (preview) and a `live` (production) environment. ALL write operations through MCP land in staging — this is enforced server-side, not a convention. **There is NO way to publish to live via MCP.** Everything configured through MCP (agents, actions, instructions, resources) becomes effective in production only after the user runs the content deployment in the moinAI Hub. When the configuration is tested and done, tell the user to deploy in the Hub. Reading the live state is possible (`stageName: "live"` on read tools, `staging: false` in the playground).
 
 **Channels.** Agents, actions, and resources are configured per channel (website widget, WhatsApp, ...). When you omit `channelId`, tools default to the bot's first channel — consistently across all tools, so create and test line up. Get channel IDs from `ai_agent_list`.
 
-**Channel configuration is Hub-only.** Each channel also carries settings that shape every answer on it: a use-case context text (which feeds agent classification), the persona (agent title and description), the tone-of-voice rules, the guardrail, the language configuration and whether answers use markdown. None of it is reachable through MCP — it lives on the live bot document, so writing it would take effect in production immediately and break the staging guarantee. When one of these is the real cause of a problem, say so plainly and hand it to the user to change in the Hub, rather than working around it in agent instructions.
+**Channel configuration is readable, but Hub-only to change.** Each channel carries settings that shape every answer on it: the use-case context (which feeds agent classification), the persona, the tone-of-voice rules, the guardrail, the language configuration and markdown mode. `bot_get` shows all of them; no MCP tool changes them. They live on the live bot document, so writing them would take effect in production immediately and break the staging guarantee. When one of these is the real cause of a problem, say so plainly and hand the user something to apply in the Hub — see below — rather than compensating for it in agent instructions.
 
 **Agents (intents).** A "KI Agent" is a RAG intent: it owns knowledge resources, custom instructions, AI actions, and a per-channel activation state.
+
+## Recommending Hub changes
+
+Everything `bot_get` shows is read-only through MCP, which makes recommendations your main lever on it. Review the configuration once per session, unprompted, and raise what you find — the user cannot act on a problem you noticed and kept to yourself.
+
+Worth checking on every bot, because both are commonly left at their defaults and both degrade answers quietly:
+
+- **The channel use case** (the Hub labels this field "Use Case"). It feeds agent classification, so a channel that says only "Service Bot" gives the classifier almost nothing to route with, and an empty one gives it nothing at all. Propose a concrete replacement covering who the visitors are, what the channel is for, which topics belong to it and — just as useful — which explicitly do not.
+- **Persona and tone of voice.** An empty `agentTitle`/`agentDescription` and tone rules still sitting at the default `["be helpful"]` mean the bot has no defined voice. Every agent-level instruction that tries to compensate for that is duplicated work that will drift apart.
+
+Also flag when you see it: languages configured that the knowledge does not cover, markdown off while answers contain lists or tables, a guardrail disabled on a public channel, or a channel use case that contradicts the agents actually attached to it.
+
+Deliver these as a short list with the **exact text to paste**, not as a diagnosis — "your use case description is thin" helps nobody; a ready-to-use paragraph does. Keep it to what you actually observed. And keep it separate from the task at hand: finish what the user asked for first, then add the recommendations at the end.
 
 ## Designing good agents
 

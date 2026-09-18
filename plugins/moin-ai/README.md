@@ -20,7 +20,7 @@ Inspect a bot's channels, languages, agents and knowledge; create and edit knowl
 
 ## Requirements
 
-A moinAI account with a bot, and a Hub login. See the [repository README](https://github.com/knowhereto/moin-mcp) for the API-key alternative and for setups outside Claude Code.
+A moinAI account with a bot, and a Hub login — the plugin authenticates through the Hub via OAuth. See the [repository README](https://github.com/knowhereto/moin-mcp) for setups outside Claude Code.
 
 ## Privacy & support
 

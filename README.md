@@ -92,14 +92,20 @@ cp -r moin-mcp/plugins/moin-ai/skills/moin-ai-management ~/.claude/skills/
 | Area | Tools |
 |------|-------|
 | Bot overview | `bot_get` — name, stage, languages and every channel's configuration; `bot_list` on a multi-bot Hub login |
+| Channel settings | `channel_update` — channel use case and markdown mode |
+| Website widget | `widget_get/update`, `widget_set_avatar` — design, texts, privacy screen, avatar from an image URL |
 | Knowledge documents | `knowledgebase_search/create/retrieve/update/delete` — Markdown documents written in moinAI |
 | Webhook integrations | `webhook_list/get/create/update/delete/test` |
 | AI agents | `ai_agent_list/create/set_status`, `ai_agent_get/set_instructions` |
 | AI actions | `ai_action_add_webhook/update_webhook/remove` |
+| Answer templates | `ai_template_list/create/update/delete` — card sliders (products, events) and link buttons |
+| Basic conversation elements | `basic_cx_get/update` — greeting, not understood, happy/unhappy path, rating, thanks |
 | Website & PDF resources | `ai_agent_resources`, `ai_resource_add/update/set_connection` |
 | Testing & tuning | `ai_playground_test`, `ai_feedback_intent`, `ai_feedback_answer` |
 
-All write operations are restricted to the **staging** environment. Publishing to live is not possible via MCP — configurations become effective in production only through the content deployment in the moinAI Hub.
+Content (agents, actions, instructions, knowledge, answer templates, conversation elements) is always written to the **staging** environment. Publishing it to live is not possible via MCP — it becomes effective in production only through the content deployment in the moinAI Hub.
+
+Channel use case, markdown and the website widget have no staging environment; a change is live immediately. MCP therefore only changes them while the bot is not productive yet: on bots in the stage **onboarding** (Hub login as Owner/Editor) or **demo** (admin login). On productive bots these tools refuse and the change is made in the Hub.
 
 ---
 

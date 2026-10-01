@@ -1,6 +1,6 @@
 ---
 name: moin-ai-management
-description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, build answer templates (product/event sliders), set up the channel use case, markdown, the website widget design and avatar, and the basic conversation elements (greeting, not understood, happy/unhappy path), test conversations in the playground, and tune agent behaviour. Use when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, asks about the moinAI website widget's JavaScript API, or is trying to connect an assistant to their moinAI bot in the first place.
+description: Manage a moinAI chatbot through the moinAI MCP server — create and configure AI agents, attach knowledge resources and webhook actions, build answer templates (product/event sliders), set up the channel use case, markdown, the website widget design and avatar, and the basic conversation elements (greeting, not understood, happy/unhappy path), build a complete sales demo bot for a prospect's website, test conversations in the playground, and tune agent behaviour. Use when the user asks to create a demo ("Erstelle mir die Demo für …", "Demo-Bot für …"), or when the user wants to build, configure, test, or debug a moinAI bot, mentions "moinAI", "moin.ai", "KI Agent", webhook integrations for their chatbot, asks why their bot answers (or doesn't answer) a certain way, asks about the moinAI website widget's JavaScript API, or is trying to connect an assistant to their moinAI bot in the first place.
 ---
 
 # moinAI Bot Management
@@ -41,7 +41,7 @@ Never fabricate a bot state you could not read, and never fall back to giving Hu
 
 **Channels.** Agents, actions, and resources are configured per channel (website widget, WhatsApp, ...). When you omit `channelId`, tools default to the bot's first channel — consistently across all tools, so create and test line up. Channel ids come from `bot_get`; `ai_agent_list` repeats them per agent.
 
-**Live-effective settings — stage-gated.** Some settings have no staging environment: the channel use case and markdown mode (`channel_update`) and the website widget design, texts and avatar (`widget_update`, `widget_set_avatar`). A change there is visible in production immediately. The server therefore only allows these writes while the bot is not productive yet:
+**Live-effective settings — stage-gated.** Some settings have no staging environment: the channel use case, markdown mode, persona, communication rules and multi-language mode (`channel_update`) and the website widget design, texts and avatar (`widget_update`, `widget_set_avatar`). A change there is visible in production immediately. The server therefore only allows these writes while the bot is not productive yet:
 
 | Connection | Allowed on bot stage |
 |---|---|
@@ -49,7 +49,7 @@ Never fabricate a bot state you could not read, and never fall back to giving Hu
 | Hub login as admin | `demo` |
 | any other stage (`live`, none, …) | refused with a reason |
 
-So on an onboarding or demo bot you build the whole configuration yourself — including design and use case. On a productive bot, `channel_update`/`widget_*` answer with a refusal: report it, hand the user the exact change to make in the Hub, and never offer to change the bot stage. Persona, tone-of-voice rules, guardrail and languages stay Hub-only on every stage.
+So on an onboarding or demo bot you build the whole configuration yourself — including design, use case and voice. On a productive bot, `channel_update`/`widget_*` answer with a refusal: report it, hand the user the exact change to make in the Hub, and never offer to change the bot stage. The guardrail and the channel's language list stay Hub-only on every stage.
 
 **Agents (intents).** A "KI Agent" is a RAG intent: it owns knowledge resources, custom instructions, AI actions, answer templates, and a per-channel activation state.
 
@@ -57,7 +57,7 @@ So on an onboarding or demo bot you build the whole configuration yourself — i
 
 ## Reviewing the channel configuration
 
-Review the configuration `bot_get` shows once per session, unprompted, and raise what you find — the user cannot act on a problem you noticed and kept to yourself. On an `onboarding` bot (or a `demo` bot on an admin login) you can fix the use case and markdown yourself with `channel_update` — propose the change, then apply it once the user agrees. Everywhere else, and for persona/tone/guardrail/languages always, the review ends in a recommendation for the Hub.
+Review the configuration `bot_get` shows once per session, unprompted, and raise what you find — the user cannot act on a problem you noticed and kept to yourself. On an `onboarding` bot (or a `demo` bot on an admin login) you can fix use case, markdown, persona, communication rules and multi-language mode yourself with `channel_update` — propose the change, then apply it once the user agrees. Everywhere else, and for guardrail and language list always, the review ends in a recommendation for the Hub.
 
 Worth checking on every bot, because both are commonly left at their defaults and both degrade answers quietly:
 
@@ -68,7 +68,7 @@ Also flag when you see it: languages configured that the knowledge does not cove
 
 Deliver Hub recommendations as a short list with the **exact text to paste**, not as a diagnosis — "your use case description is thin" helps nobody; a ready-to-use paragraph does. Keep it to what you actually observed. And keep it separate from the task at hand: finish what the user asked for first, then add the recommendations at the end.
 
-## Channel use case and markdown — `channel_update`
+## Channel settings — `channel_update`
 
 **Use case ("Einsatzbereich").** It frames every request for agent classification; the helpcenter calls it mandatory on every channel — a thin or missing one shows up as conversations classified as "unknown". Write it **in English, whatever the channel language**, and cover:
 
@@ -80,9 +80,15 @@ Deliver Hub recommendations as a short list with the **exact text to paste**, no
 This AI chatbot is the customer service assistant on the website of Tierpark Nordheide, a wildlife park near Hamburg, Germany. Visitors ask about opening hours, tickets and prices, annual passes, directions and parking, animal feedings and events, accessibility and the park restaurant. It does not handle job applications, press requests or sponsorship enquiries.
 ```
 
-Tone (du/Sie, style) does not belong here — that is the communication rules; behavioural rules ("never speculate") belong in the persona. Both are Hub settings.
+Tone (du/Sie, style) does not belong here — that is the communication rules; behavioural rules ("never speculate") belong in the persona. Both are set with `channel_update` too, see below.
 
 **Markdown.** With markdown on, generated answers may use lists, bold text, links and tables; it is only rendered on **website widget** channels (`channel_update` warns on other channel types). Turn it on when answers carry structure — tariffs, opening hours, steps, contact lists. The switch alone does not make answers structured: where an agent should format in a specific way, say so with `ai_feedback_answer` for that answer type, or in the agent instructions for a narrow agent ("use markdown lists for the opening hours"). Keep headings to three levels at most.
+
+**Persona** (`persona: { agentTitle, agentDescription }`) gives every generated answer its role. `agentTitle` names it ("Customer service assistant of Tierpark Nordheide"), `agentDescription` says how the role shapes answers: scope, level of detail, and behaviour rules such as "only cite the given sources, never speculate". Write it in English. The fields are merged, so you can change one without the other. Keep facts out of it; facts belong in knowledge.
+
+**Communication rules** ("Kommunikationsregeln", `communicationRules: { enabled, rules }`) are a style pass over every generated answer. This is where du or Sie, tone and emoji use are decided — the greeting can say "Sie" all it wants, if the rules are not set the AI answers keep the default voice. Short imperative rules in the language of the channel work best, at most 150 characters each, for example `["per Du schreiben", "Freundlich und einfühlsam antworten", "Emojis sparsam verwenden"]`. `rules` replaces the whole list; an empty list switches the rules off. Each enabled rule set adds a short extra step to every answer, so keep it to the rules that change something — the default `["be helpful"]` changes nothing.
+
+**Multi-language mode** (`multiLanguage: true`) lets the channel answer in the language the visitor writes in, instead of only the channel language. Enabling it the first time switches on all supported languages. Turn it on when the website has an international audience; the knowledge can stay in the main language.
 
 After a change, re-test classification with `ai_playground_test` on a handful of typical and off-topic questions.
 
@@ -101,23 +107,57 @@ An answer template gives an agent a visual answer format: a **card slider** (`ty
   "answer": {
     "text": "Say in one sentence which products you found for the request.",
     "cards": [{
-      "image_url": "The URL of the product image. Leave empty if the knowledge has no image for the product.",
+      "image_url": "The URL of the product image",
       "title": "Product name",
       "subtitle": "Price and a very short description (max. 80 characters)",
       "buttons": [{ "title": "Zum Produkt", "url": "The product URL" }]
     }]
   },
-  "imageDisplayMode": "contain"
+  "imageDisplayMode": "contain",
+  "imageSource": "og"
 }
 ```
+
+The example assumes a shop whose product pages carry per-product OG images and whose images are square packshots — hence `og` + `contain` (see "Card images" below). With `og` the `image_url` field is ignored, but it has to stay in the card.
 
 `preset: "products"` / `"events"` starts from the Hub presets (Produkt-Slider / Veranstaltungs-Slider); anything you pass explicitly overrides them. One card in the template describes the shape of every card the AI generates.
 
 - **The instruction says *when*.** Make it specific enough not to fire on every answer — "If products should be listed" is the preset, a narrower trigger is usually better. Mark one template `default: true` only if it should apply whenever nothing else fits.
-- **Images.** `imageDisplayMode: "cover"` (Fill, default) crops to the card format — good for photos and event images. `"contain"` (Fit) shows the full image — good for packshots and logos. When the knowledge has no image URLs, the AI fills the field with something like "no image": either tell it to leave the field empty, or use `imageSource: "og"`, which takes the image from the OG metadata of the card's button URL.
+- **Images** — decide display mode and image source per template, see below. Never leave both at their defaults without looking at the images.
 - **Button titles** are short and self-explanatory (around 50 characters at most), e.g. "Zum Produkt", "Tickets kaufen" — not "Mehr".
 - **Keep result lists small.** Ten cards at most, and three to five usually read best; the output varies between runs, so a template is the wrong place for content that must be complete or identical every time — that belongs in editorial content.
 - `fillMode: "action"` with `actionBinding` renders the cards deterministically from an AI action's response (e.g. a product search API) instead of having the AI write them.
+
+### Card images: display mode and source
+
+The card image area in the widget has a fixed, wide format of **2.35 : 1**. Two settings decide what ends up in it, and both deserve a look at the actual images before the template is created.
+
+**Display mode (`imageDisplayMode`): check the image format first.** Look at 3–5 representative images — the product or event images the cards will show — and judge their aspect ratio and content. `og:image:width`/`og:image:height` meta tags give the size directly; otherwise download a few and read their dimensions.
+
+| Images are… | Use | Why |
+|---|---|---|
+| Landscape photos, roughly 1.8 : 1 or wider (event photos, hero images, most OG images at 1200×630) | `"cover"` — Fill (crop), default | They fill the wide card; only a thin strip is cut at top and bottom |
+| Square or portrait (product packshots, bottles, book covers, people) | `"contain"` — Fit (full image) | `cover` would cut a square image to a narrow middle band — the product loses its top and bottom |
+| Logos, images with text or a frame, infographics | `"contain"` | Cropping cuts off lettering and edges |
+| Mixed formats | `"contain"` | Nothing important gets cut; letterboxing is the lesser evil |
+
+Packshots on a white background usually belong to `contain`: the white blends into the card and the product is shown completely. Check the result in the playground or the Hub preview, and switch with `ai_template_update` if the crop looks wrong.
+
+**Image source (`imageSource`): use OG images where the target pages have them.** With `imageSource: "og"` the card image is not written by the AI. The server takes it from the Open Graph image (`og:image`, or `twitter:image`) of the page the card's **first button** links to — typically the product or event detail page. That has three advantages:
+
+- the image is the shop's own, current product image — no guessed or outdated image URLs,
+- it works even when the knowledge contains no image URLs at all,
+- the image field is removed from the prompt, which saves tokens.
+
+Before choosing `og`, open 2–3 of the target pages and check that each has an `og:image`, and that it is **specific to the page** — many sites use the same logo or banner as `og:image` everywhere, which would put one identical image on every card. Product pages of shop systems (Shopify, Shopware, WooCommerce, …) usually have a proper per-product OG image; event pages often do as well. OG images are mostly landscape (1.91 : 1) — combine `og` with `cover`, unless the sample shows square packshots; then `contain`.
+
+How it behaves at runtime:
+
+- The **button URL must be the detail page** (`"url": "The product URL"`), not a category or search page — the OG image is taken from exactly that link. A card without a button URL gets no image.
+- A page without an OG image gives a card **without image** — no broken image, no placeholder.
+- Images are looked up within **1.5 s** and then cached. On the very first request for a page the lookup can miss that window and the card comes without image; a second playground test shows the cached result. Do not read a missing image on the first try as a broken setup.
+
+With `imageSource: "llm"` (default) the AI fills the image field from the knowledge. Use it only when the knowledge really contains image URLs, and phrase the field so it stays empty otherwise ("The URL of the product image. Leave empty if the knowledge has no image for the product") — without that the AI writes placeholder text such as "Kein Bild" into the field.
 
 **Verify with `ai_playground_test`**: the answer must come back with `cards` (or `buttons`), not just text. If a question that should produce a slider returns plain text, sharpen the instruction; if a slider appears where it should not, narrow it.
 
@@ -160,6 +200,20 @@ The Hub's "Gesprächsführung": the messages around the AI answers. Staged like 
 - **Handover.** Offer it in not understood, on the unhappy path, and after topics where a human should take over; live chat first, a callback/e-mail request second.
 
 Text variants are only possible on `not_understood`, `unhappy_path` and `thanks`. Quick reply targets must be existing topics, forms or smalltalk intents of the bot — reuse the targets `basic_cx_get` shows.
+
+## Building a sales demo — "Erstelle mir die Demo für XY"
+
+When the user asks for a demo for a company or website, follow **[references/demo-flow.md](references/demo-flow.md)** end to end. Read it before the first tool call. The flow takes you from a company name to a finished demo bot plus a briefing for the presenter:
+
+1. Pin down website and use case, and ask with concrete proposals if either is missing.
+2. Research the company and website: offer, tone, du/Sie, CI colours, logo URL, source pages.
+3. Set the channel use case, markdown, persona, communication rules and multi-language mode, and write greeting and standard texts in the company's voice.
+4. Configure the widget in the company's CI and set the logo as avatar.
+5. Derive typical user requests and build the knowledge, templates and, where possible, integrations to answer them.
+6. Test every request in the playground.
+7. Hand over a short briefing: what was built, which questions to show, and the known limits.
+
+Demos are only built on bots with stage `demo` (admin login) or `onboarding` (owner/editor login). That is the same gate that makes the widget and channel settings writable.
 
 ## Designing good agents
 
@@ -362,7 +416,7 @@ Never write the correct facts into instructions or into feedback as a shortcut. 
 
 **On an agent with AI actions, instructions can veto an action.** They do not only shape the answer, they compete with the action `description`s for the tool choice. A rule like "if the place is unclear, ask instead of guessing" made the bot reply "you did not give me a place" to *"will it be warm at my place on Saturday?"* — with the visitor's location sitting in the context and a location action attached that would have answered it. The same agent still handled "is it raining here today?" correctly; only the combination with a target day tripped it. After every instruction change, re-test **all** actions of the agent, not just the question the instruction was written for.
 
-Tone and style are governed by the **channel's** persona and tone-of-voice rules, not by the agent — don't restate them in agent instructions. Those are Hub-only settings, so when the complaint is really about how the bot sounds, the fix is a Hub change, not an instruction.
+Tone and style are governed by the **channel's** persona and communication rules, not by the agent — don't restate them in agent instructions. When the complaint is really about how the bot sounds, the fix is `channel_update` (on onboarding/demo bots) or a Hub change, not an instruction.
 
 Test staging by default. `ai_playground_test` with `staging: false` tests the production state — useful to compare before/after a deploy.
 

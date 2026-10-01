@@ -92,7 +92,7 @@ cp -r moin-mcp/plugins/moin-ai/skills/moin-ai-management ~/.claude/skills/
 | Area | Tools |
 |------|-------|
 | Bot overview | `bot_get` — name, stage, languages and every channel's configuration; `bot_list` on a multi-bot Hub login |
-| Channel settings | `channel_update` — channel use case and markdown mode |
+| Channel settings | `channel_update` — use case, markdown, persona, communication rules, multi-language mode |
 | Website widget | `widget_get/update`, `widget_set_avatar` — design, texts, privacy screen, avatar from an image URL |
 | Knowledge documents | `knowledgebase_search/create/retrieve/update/delete` — Markdown documents written in moinAI |
 | Webhook integrations | `webhook_list/get/create/update/delete/test` |

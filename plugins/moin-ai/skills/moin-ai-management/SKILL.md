@@ -82,7 +82,7 @@ This AI chatbot is the customer service assistant on the website of Tierpark Nor
 
 Tone (du/Sie, style) does not belong here — that is the communication rules; behavioural rules ("never speculate") belong in the persona. Both are set with `channel_update` too, see below.
 
-**Markdown.** With markdown on, generated answers may use lists, bold text, links and tables; it is only rendered on **website widget** channels (`channel_update` warns on other channel types). Turn it on when answers carry structure — tariffs, opening hours, steps, contact lists. The switch alone does not make answers structured: where an agent should format in a specific way, say so with `ai_feedback_answer` for that answer type, or in the agent instructions for a narrow agent ("use markdown lists for the opening hours"). Keep headings to three levels at most.
+**Markdown.** With markdown on, generated answers may use lists, bold text, links and tables; it is only rendered on **website widget** channels (`channel_update` warns on other channel types). Turn it on when answers carry structure — tariffs, opening hours, steps, contact lists. The switch alone does not make answers structured: where an agent should format in a specific way, say so with `ai_feedback_answer` for that answer type, or in the agent instructions for a narrow agent ("use markdown lists for the opening hours"). Keep headings to three levels at most. With markdown on, only `[Text](URL)` links are clickable; bare URLs stay plain text (see "Links in answers").
 
 **Persona** (`persona: { agentTitle, agentDescription }`) gives every generated answer its role. `agentTitle` names it ("Customer service assistant of Tierpark Nordheide"), `agentDescription` says how the role shapes answers: scope, level of detail, and behaviour rules such as "only cite the given sources, never speculate". Write it in English. The fields are merged, so you can change one without the other. Keep facts out of it; facts belong in knowledge.
 
@@ -277,7 +277,13 @@ Note the asymmetry that makes this confusing: the **action's response is visible
 
 Because of that, "value from the conversation" and "value from the page context" are **two separate actions** on the same agent, not one action with a fallback: one declares an LLM parameter, the other declares none and puts `{{context_name}}` in the URL. The LLM picks between them reliably from their `description`.
 
-**Actions do not chain.** Exactly one round of action calls runs per answer; afterwards the actions are no longer offered to the model. An `instruction_after` along the lines of "now run the geocoding result through the weather action" therefore cannot work — the model keeps asking for a call it can no longer reach, which surfaces as a repeating instruction and a playground timeout rather than as an error. Design each action as one self-sufficient HTTP call. Where the temptation to chain exists, close it explicitly: "this response is the final information, do not call another action."
+**Action rounds: one by default, up to three on request.** By default one round of action calls runs per answer; afterwards the actions are no longer offered to the model. moinAI can raise this per bot to **2 or 3 rounds** (bot setting `settings.kb.maxActionIterations`, read from the live bot, so it applies to staging and the playground as well). It is not settable through MCP; when a use case needs it, ask the user to have it raised by moinAI. Each round executes the requested actions and generates a follow-up answer, so a later round can use the result of an earlier one: geocode a place name, then fetch departures or weather for the returned coordinates.
+
+Design for the number of rounds the bot actually has:
+
+- **One round (default):** every action must be one self-sufficient HTTP call. An `instruction_after` such as "now run the geocoding result through the weather action" cannot work: the model keeps asking for a call it can no longer reach, which shows up as duplicated or repeating messages and a playground timeout rather than as an error. Close it explicitly in `instruction_after`: "this response is the final information; call_actions MUST be an empty list."
+- **Two or three rounds:** keep the chain as short as the use case allows, since every round adds an LLM roundtrip plus the webhook latency. **Resolve all inputs of the next step in the same round**: geocode start *and* destination together, not one after the other, otherwise the last round is used up before the main call. Give the resolving action an `instruction_after` like "immediately call the next action with these values, do not ask the user to confirm", and the final action the empty-call_actions rule above.
+- Test the full chain in `ai_playground_test`: the response must show every round's action executing, and the answer must use the final result.
 
 ### Worked example: weather forecast for the visit day
 
@@ -373,18 +379,39 @@ Three things to get right:
 
 ### When the user names the place
 
-The third case — the user says "how is the weather in Kaltenkirchen?" — is the hardest, because Open-Meteo takes coordinates and not names. Letting the LLM fill `latitude`/`longitude` directly works better than expected: for an unambiguous German town of 20,000 it matched the official geocoder exactly. Chaining a geocoding action in front of it is not an option (see above), so this is usually the right call.
+The third case — the user says "how is the weather in Kaltenkirchen?" — is the hardest, because Open-Meteo takes coordinates and not names.
 
-It fails silently on **ambiguous names**, though. "Springfield" was answered with weather for "Springfield, Germany" — a place that does not exist — with no error and no follow-up question. Two things contain it:
+**Never let the model estimate coordinates.** GPS positions, postcodes, stop ids, opening states and similar machine values must come from an interface, never from the model's memory. A model filling `latitude`/`longitude` itself gets well-known towns roughly right and fails silently on everything else: small streets end up hundreds of metres or several kilometres off, and the answer still sounds certain. Do not declare coordinates as LLM parameters for the user to fill indirectly.
 
-- A `paramDescription` that forbids the guess explicitly: do not execute the action when the name exists in several countries, ask which one is meant; never relocate a place to Germany just because the user writes German.
-- A `instruction_after` that requires naming place, region and country in the answer, so a wrong match becomes visible to the user instead of hiding behind a plausible temperature.
+Instead, resolve the name through a geocoding action and use its result:
 
-Calibrating that is the actual work: a first attempt phrased as "only if you really know the location" swung too far and made the bot refuse the unambiguous town. Test both ends — a clearly known place and a deliberately ambiguous one — after every wording change.
+- **Two action rounds** (see "Action rounds" above): a geocoding action first, e.g. Open-Meteo's own keyless `https://geocoding-api.open-meteo.com/v1/search?name={{place_name}}&count=3&language=de` (under 2 KB), then the weather action with the coordinates from its response. This is the clean solution; have moinAI raise the bot to 2 rounds for it.
+- **Coordinates from the page** via `addContext` (the second case above), when the question is about the visitor's own position.
+- **With only one round and no context:** ask the user for a more precise location, or answer for the fixed location of the business. Do not fall back to letting the model guess.
+
+The geocoder makes **ambiguity** visible instead of hiding it. "Springfield" returns several places in different states and countries; the geocoding action's `instruction_after` should then ask which one is meant instead of picking the first. Have the final answer name place, region and country, so a wrong match is visible to the user. Test both ends: a clearly known place and a deliberately ambiguous one.
 
 ## Widget JS API
 
 Questions about controlling the website widget from the page — embedding it, feeding data in via `addContext`, available methods and events — are not covered by the MCP tools (the widget's design and texts are: see "Website widget" above). The public documentation at https://dev.moin.ai/wdocs/api/api.html is the source of truth. Read that page before answering instead of guessing method names.
+
+## Links in answers
+
+A link in an answer is only useful if the visitor can click it. What is clickable depends on the channel's markdown mode:
+
+| Markdown | What the widget does with a link in the answer text |
+|---|---|
+| **on** | Only markdown links `[Text](https://…)` are clickable. A bare `https://…` stays **plain, unclickable text**; the renderer deliberately does not auto-link. |
+| **off** | Every URL in the text is replaced by a footnote number `[1]` and appended as a button titled `[1] https://…`. It is clickable, but reads like a raw URL. |
+
+So the rule for every agent: **links are either markdown links with a meaningful text, or buttons — never bare URLs.**
+
+- **A call to action** ("Zum Ticketshop", "Termin buchen", "Zum Produkt") is best a **button**: give the answer template or the instruction a button with a short title and the URL. Product and event lists come as card sliders with a button per card anyway.
+- **A link inside running text** (a source, a details page) is a markdown link with a descriptive text: `[Öffnungszeiten aller Standorte](https://…)`, not `hier` and not the URL itself.
+- **Links from an action response** are worded in that action's `instruction_after`: "Give the booking link as a button titled 'Jetzt buchen', never print the raw URL."
+- For answers from knowledge, set it with `ai_feedback_answer` for the answer type that shows bare links. On a narrow agent whose answers always carry links, the agent instructions are the right place.
+
+**Check it in the playground**: look at `answers[].text` and `answers[].buttons`. A bare `https://` in the text with markdown on is a finding, as is a button whose title is a URL.
 
 ## Tuning loop
 

@@ -169,7 +169,7 @@ Call `widget_get` first, then `widget_update`:
 | Facts on a page of the site | `ai_resource_add` with the targeted page, not the whole domain. Add `scrapeOptions` when the page is JS-heavy or noisy. |
 | Facts that are scattered or hidden in PDFs/images | A `knowledgebase_create` document that sums them up, built **only** from what the site says, scoped with `activeOn`. |
 | A list of products or events (**prefer this in a demo**) | An answer template on the agent (`ai_template_create` with preset `products` / `events`). Before creating it, check the images as described in SKILL.md under "Card images": do the detail pages have page-specific OG images (then `imageSource: "og"`)? Are the images landscape (`cover`) or square packshots/logos (`contain`)? |
-| Live data (availability, weather, product search) | A webhook action (see SKILL.md, "Standard workflow: webhook AI action"), **only** against a public endpoint that needs no credentials. At least one request of the demo should run through such an action, as agreed in step 1. If none was agreed, name it in the briefing as a "would come through an integration" point. |
+| Live data (availability, weather, product search) | A webhook action (see SKILL.md, "Standard workflow: webhook AI action"), **only** against a public endpoint that needs no credentials. When it needs a location, resolve it through a geocoding action and never let the model estimate coordinates (SKILL.md, "When the user names the place"). If the integration needs two dependent calls, ask the user to have the demo bot raised to 2 action rounds by moinAI (SKILL.md, "Action rounds"). At least one request of the demo should run through such an action, as agreed in step 1. If none was agreed, name it in the briefing as a "would come through an integration" point. |
 | A handover | The existing handover / not-understood quick replies. Do not build a fake live chat. |
 
 **Prefer the slider.** In a demo, any request whose answer is a set of things (products, events, offers, locations, tariffs) should come back as a card slider, not as a markdown list. Make sure at least one, better two, of the showcase questions trigger it. Phrase the template instruction broadly enough to fire for those questions ("Use this template whenever several products, events or offers are listed"), and combine it with the integration where possible: an action whose response fills the cards (`fillMode: "action"`) is the strongest visual moment of a demo.
@@ -191,6 +191,8 @@ Run every request from step 5 through `ai_playground_test` (staging). For each o
 - **Facts**: compare the answer against the source page itself, not against what sounds plausible.
 - **Format**: lists or tables render with markdown, and the slider comes back as `cards` where a template should fire.
 - **Off-topic**: the bot declines politely (code 101 is correct here).
+- **Links**: every link is clickable, either as a markdown link with a meaningful text or as a button. A bare `https://…` in the text, or a button titled with a URL, is a failure (SKILL.md, "Links in answers").
+- **Machine values** such as coordinates, stop ids or dates come from an action response, never from the model.
 
 Fix each failure with the tuning loop in SKILL.md: knowledge first, then answer feedback, and instructions only as a last resort. Re-test after every change. Keep a pass/fail list; it goes into the briefing.
 
